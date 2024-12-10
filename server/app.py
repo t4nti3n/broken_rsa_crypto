@@ -1,53 +1,78 @@
 from flask import Flask, request, jsonify
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import serialization, hashes
-import random
+import base64
+from crypt_utils import (
+    public_key_small,
+    public_key_common,
+    public_key_normal,
+    derive_session_key,
+    decrypt_pre_master_secret,
+    encrypt_data,
+    decrypt_data,
+    simulate_crt_fault
+)
 
 app = Flask(__name__)
 
-# create a small exponent for RSA Small Exponent Attack
-key_size = 2048
-e_small = 3  # Small Exponent for RSA Small Exponent Attack
-private_key_small = rsa.generate_private_key(public_exponent=e_small, key_size=key_size)
-public_key_small = private_key_small.public_key()
+@app.route("/get_public_key", methods=["GET"])
+def get_public_key():
+    attack_type = request.args.get("attack_type", "normal")
 
-# create a common modulus for Common Modulus Attack
-private_key_common = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
-common_modulus_n = private_key_common.private_numbers().public_numbers.n
-public_key_common = rsa.RSAPublicNumbers(65537, common_modulus_n).public_key()
+    if attack_type == "small_exponent":
+        public_key = public_key_small
+    elif attack_type == "common_modulus":
+        public_key = public_key_common
+    else:
+        public_key = public_key_normal
 
-@app.route("/encrypt", methods=["POST"])
-def encrypt():
-    attack_type = request.json.get("attack_type", "small_exponent")
-    message = request.json.get("message", "").encode()
+    pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return jsonify({"public_key": pem.decode()})
 
-    if not message:
-        return jsonify({"error": "Message is required"}), 400
+
+@app.route("/exchange_key", methods=["POST"])
+def exchange_key():
+    data = request.json
+    attack_type = data.get("attack_type", "normal")
+    encrypted_pre_master = base64.b64decode(data.get("encrypted_pre_master", ""))
 
     try:
-        if attack_type == "small_exponent":
-            ciphertext = public_key_small.encrypt(
-                message,
-                padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-            )
-        elif attack_type == "common_modulus":
-            ciphertext = public_key_common.encrypt(
-                message,
-                padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-            )
-        else:
-            return jsonify({"error": "Invalid attack type"}), 400
-
-        return jsonify({"ciphertext": ciphertext.hex()})
+        pre_master_secret = decrypt_pre_master_secret(attack_type, encrypted_pre_master)
+        session_key = derive_session_key(pre_master_secret)
+        return jsonify({"session_key": base64.b64encode(session_key).decode()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/encrypt_data", methods=["POST"])
+def encrypt_data_route():
+    data = request.json
+    plaintext = data.get("plaintext", "").encode()
+    session_key = base64.b64decode(data.get("session_key", ""))
+
+    ciphertext, iv = encrypt_data(session_key, plaintext)
+
+    return jsonify({"ciphertext": base64.b64encode(ciphertext).decode(), "iv": base64.b64encode(iv).decode()})
+
+
+@app.route("/decrypt_data", methods=["POST"])
+def decrypt_data_route():
+    data = request.json
+    ciphertext = base64.b64decode(data.get("ciphertext", ""))
+    session_key = base64.b64decode(data.get("session_key", ""))
+    iv = base64.b64decode(data.get("iv", ""))
+
+    plaintext = decrypt_data(session_key, ciphertext, iv)
+
+    return jsonify({"plaintext": plaintext.decode()})
+
+
 @app.route("/crt_fault", methods=["POST"])
 def crt_fault():
-    #  CRT fault attack
-    faulty_signature = random.randint(1, 2**128).to_bytes(16, "big")  # Fake faulty signature
-    return jsonify({"faulty_signature": faulty_signature.hex()})
+    # Simulate CRT fault attack by generating a faulty signature
+    faulty_signature = simulate_crt_fault()
+    return jsonify({"faulty_signature": base64.b64encode(faulty_signature).decode()})
 
 
 if __name__ == "__main__":

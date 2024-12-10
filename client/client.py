@@ -1,24 +1,52 @@
 import tkinter as tk
 from tkinter import messagebox
-import requests
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import base64
+from crypt_utils import (
+    get_public_key,
+    exchange_key,
+    aes_encrypt,
+    decrypt_data,
+)
 
+
+# Hàm gửi message
 def send_message():
-    message = message_entry.get("1.0", "end-1c")
     attack_type = attack_var.get()
 
     try:
-        response = requests.post(
-            "https://localhost:5000/encrypt",
-            json={"message": message, "attack_type": attack_type},
-            verify="server_cert.pem",
-        )
-        result = response.json()
-        output_text.delete("1.0", tk.END)
-        output_text.insert(tk.END, f"Ciphertext:\n{result.get('ciphertext', 'Error')}")
+        # Fetch public key from server
+        public_key_pem = get_public_key(attack_type)
+        if public_key_pem:
+            # Exchange keys with the server
+            session_key = exchange_key(public_key_pem, attack_type)
+            if session_key:
+                # Encrypt the message
+                encrypt_data(session_key)
     except Exception as e:
         messagebox.showerror("Error", str(e))
+
+
+def encrypt_data(session_key):
+    try:
+        plaintext = message_entry.get("1.0", "end-1c")
+        iv, ciphertext = aes_encrypt(session_key, plaintext)
+
+        if iv and ciphertext:
+            response = requests.post(
+                "https://localhost:5000/encrypt_data",
+                json={
+                    "session_key": base64.b64encode(session_key).decode(),
+                    "iv": iv,
+                    "ciphertext": ciphertext,
+                },
+                verify="server_cert.pem",
+            )
+            result = response.json()
+            output_text.delete("1.0", tk.END)
+            output_text.insert(tk.END, f"Ciphertext:\n{result.get('ciphertext', 'Error')}")
+    except Exception as e:
+        messagebox.showerror("Error", f"AES Encryption Error: {str(e)}")
+
 
 app = tk.Tk()
 app.title("RSA Vulnerability Demo")
