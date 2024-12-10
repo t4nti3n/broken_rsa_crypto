@@ -55,5 +55,4 @@ rsa-vulnerability-demo/
 │   ├── rsa_common_modulus.py # Implementation of Common Modulus Attack
 │   ├── rsa_crt_fault.py      # Implementation of CRT Fault Attack
 │   ├── requirements.txt      # Python dependencies
-│
 └── README.md                 # Project instructions and documentation
