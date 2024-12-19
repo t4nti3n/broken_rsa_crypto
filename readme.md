@@ -47,7 +47,7 @@ rsa-vulnerability-demo/
 ├── server/
 │   ├── app.py                # Flask Server: API and communication logic for Client and vulnerability simulations
 │   ├── crypt_utils.py        # Cryptographic utilities (key generation, encryption, decryption, etc.)
-│   ├── private_key.pem       # RSA private key used for decryption and signing
+│   ├── server_key.pem       # RSA private key used for decryption and signing
 │   ├── server_cert.pem       # Server's public certificate for Client validation
 │
 ├── client/
