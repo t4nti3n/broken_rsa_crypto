@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox
 import base64
+import requests
 from crypt_utils import (
     get_public_key,
     exchange_key,
