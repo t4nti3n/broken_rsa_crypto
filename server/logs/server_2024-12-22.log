@@ -1,0 +1,14 @@
+{"timestamp": "2024-12-22T19:08:22.165856", "type": "connection", "message": "New connection established: JxH7eNvo6eCQglwep5RM0w=="}
+{"timestamp": "2024-12-22T19:08:35.387785", "type": "chat", "message": "[2024-12-22 19:08:35] [JxH7eNvo6eCQglwep5RM0w==] Client: hi"}
+{"timestamp": "2024-12-22T19:08:35.387785", "type": "chat", "message": "[2024-12-22 19:08:35] [JxH7eNvo6eCQglwep5RM0w==] Server: HI"}
+{"timestamp": "2024-12-22T19:09:15.271979", "type": "connection", "message": "New connection established: 4YFgqomQuOfyt8pOIAv/UQ=="}
+{"timestamp": "2024-12-22T19:09:27.093503", "type": "chat", "message": "[2024-12-22 19:09:27] [4YFgqomQuOfyt8pOIAv/UQ==] Client: ho"}
+{"timestamp": "2024-12-22T19:09:27.093503", "type": "chat", "message": "[2024-12-22 19:09:27] [4YFgqomQuOfyt8pOIAv/UQ==] Server: HO"}
+{"timestamp": "2024-12-22T20:51:06.932597", "type": "connection", "message": "New connection established: pEQNXqOlxmRpzU3o1+SO+Q=="}
+{"timestamp": "2024-12-22T20:52:13.576302", "type": "chat", "message": "[2024-12-22 20:52:13] [pEQNXqOlxmRpzU3o1+SO+Q==] Client: hi"}
+{"timestamp": "2024-12-22T20:52:13.581477", "type": "chat", "message": "[2024-12-22 20:52:13] [pEQNXqOlxmRpzU3o1+SO+Q==] Server: HI"}
+{"timestamp": "2024-12-22T21:08:16.909856", "type": "connection", "message": "New connection established: 0xIvvlHrDXnK8bXfcQj4cA=="}
+{"timestamp": "2024-12-22T21:08:23.765862", "type": "chat", "message": "[2024-12-22 21:08:23] [0xIvvlHrDXnK8bXfcQj4cA==] Client: hello"}
+{"timestamp": "2024-12-22T21:08:23.770136", "type": "chat", "message": "[2024-12-22 21:08:23] [0xIvvlHrDXnK8bXfcQj4cA==] Server: HELLO"}
+{"timestamp": "2024-12-22T22:12:48.503487", "type": "chat", "message": "[2024-12-22 22:12:48] [0xIvvlHrDXnK8bXfcQj4cA==] Client: hh"}
+{"timestamp": "2024-12-22T22:12:48.510833", "type": "chat", "message": "[2024-12-22 22:12:48] [0xIvvlHrDXnK8bXfcQj4cA==] Server: HH"}

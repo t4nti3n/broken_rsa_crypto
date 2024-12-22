@@ -46,19 +46,10 @@ This project demonstrates vulnerabilities in RSA Encryption, including **Small E
 rsa-vulnerability-demo/
 ├── server/
 │   ├── app.py                # Flask Server: API and communication logic for Client and vulnerability simulations
-│   ├── crypt_utils.py        # Cryptographic utilities (key generation, encryption, decryption, etc.)
-│   ├── private_key.pem       # RSA private key used for decryption and signing
-│   ├── server_cert.pem       # Server's public certificate for Client validation
 │
 ├── client/
 │   ├── client.py             # Tkinter-based Client GUI for encrypting and sending messages
-│   ├── crypt_utils.py        # Cryptographic utilities (key exchange, encryption, decryption, etc.)
-│   ├── server_cert.pem       # Server's public certificate for Client to verify the server's identity
 │
-├── attacker/
-│   ├── rsa_small_exponent.py # Small Exponent Attack implementation for the attacker (MITM)
-│   ├── rsa_common_modulus.py # Common Modulus Attack implementation for the attacker (MITM)
-│   ├── rsa_crt_fault.py      # CRT Fault Attack implementation for the attacker (MITM)
 ├── requirements.txt          # Python dependencies
 └── README.md                 # Documentation and project description
 ```
