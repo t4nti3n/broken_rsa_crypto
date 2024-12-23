@@ -29,11 +29,16 @@ class ServerGUI:
         self.left_frame = ttk.LabelFrame(self.main_container, text="Active Connections")
         self.main_container.add(self.left_frame, weight=1)
         
-        # Connection list
-        self.connection_list = ttk.Treeview(self.left_frame, columns=("session_id", "timestamp"), 
+        # Connection list with username column
+        self.connection_list = ttk.Treeview(self.left_frame, 
+                                          columns=("session_id", "username", "timestamp"), 
                                           show="headings")
         self.connection_list.heading("session_id", text="Session ID")
+        self.connection_list.heading("username", text="Username")
         self.connection_list.heading("timestamp", text="Connected At")
+        self.connection_list.column("session_id", width=100)
+        self.connection_list.column("username", width=100)
+        self.connection_list.column("timestamp", width=150)
         self.connection_list.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Right panel - Chat Logs
@@ -55,21 +60,22 @@ class ServerGUI:
     def setup_logging(self):
         Path("logs").mkdir(exist_ok=True)
         
-    def add_connection(self, session_id):
+    def add_connection(self, session_id, username):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.connection_list.insert("", "end", values=(session_id, timestamp))
-        self.log_event("connection", f"New connection established: {session_id}")
+        self.connection_list.insert("", "end", values=(session_id, username, timestamp))
+        self.log_event("connection", f"New connection established: {username} ({session_id})")
         
     def remove_connection(self, session_id):
         for item in self.connection_list.get_children():
             if self.connection_list.item(item)["values"][0] == session_id:
+                username = self.connection_list.item(item)["values"][1]
                 self.connection_list.delete(item)
-                self.log_event("connection", f"Connection closed: {session_id}")
+                self.log_event("connection", f"Connection closed: {username} ({session_id})")
                 break
                 
-    def log_chat(self, session_id, message, direction):
+    def log_chat(self, session_id, username, message, direction):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] [{session_id}] {direction}: {message}\n"
+        log_entry = f"[{timestamp}] [{username}] {direction}: {message}\n"
         self.chat_log.insert(tk.END, log_entry)
         self.chat_log.see(tk.END)
         self.log_event("chat", log_entry.strip())
@@ -94,27 +100,35 @@ app = Flask(__name__)
 gui = None
 session_keys = {}
 session_data = {}
+user_sessions = {}
 
-# RSA Keys setup with no padding
-key_size = 2048
-e_small = 3
-private_key_small = rsa.generate_private_key(public_exponent=e_small, key_size=key_size)
-public_key_small = private_key_small.public_key()
-private_key_common = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
-common_modulus_n = private_key_common.private_numbers().public_numbers.n
-public_key_common = rsa.RSAPublicNumbers(65537, common_modulus_n).public_key()
-private_key_normal = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
-public_key_normal = private_key_normal.public_key()
+# Cryptographic setup
+def setup_crypto():
+    global private_key_small, public_key_small
+    global private_key_common, public_key_common
+    global private_key_normal, public_key_normal, common_modulus_n
+    
+    key_size = 2048
+    e_small = 3
+    
+    # Generate key for small exponent attack
+    private_key_small = rsa.generate_private_key(public_exponent=e_small, key_size=key_size)
+    public_key_small = private_key_small.public_key()
+    
+    # Generate key for common modulus attack
+    private_key_common = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
+    common_modulus_n = private_key_common.private_numbers().public_numbers.n
+    public_key_common = rsa.RSAPublicNumbers(65537, common_modulus_n).public_key()
+    
+    # Generate normal key
+    private_key_normal = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
+    public_key_normal = private_key_normal.public_key()
 
 def raw_rsa_decrypt(private_key, ciphertext):
-    # Get the private numbers
     private_numbers = private_key.private_numbers()
-    # Perform raw RSA decryption: c^d mod n
     c = int.from_bytes(ciphertext, byteorder='big')
     m = pow(c, private_numbers.d, private_numbers.public_numbers.n)
-    # Convert back to bytes
-    decrypted = m.to_bytes((m.bit_length() + 7) // 8, byteorder='big')
-    return decrypted
+    return m.to_bytes((m.bit_length() + 7) // 8, byteorder='big')
 
 def derive_session_key(pre_master_secret: bytes, client_random: bytes, server_random: bytes) -> bytes:
     key_material = pre_master_secret + client_random + server_random
@@ -150,6 +164,7 @@ def decrypt_data(session_key, ciphertext, iv):
     decryptor = cipher.decryptor()
     return decryptor.update(ciphertext) + decryptor.finalize()
 
+# Flask routes
 @app.route("/get_public_key", methods=["GET"])
 def get_public_key():
     attack_type = request.args.get("attack_type", "normal")
@@ -172,6 +187,7 @@ def exchange_key():
     attack_type = data.get("attack_type", "normal")
     encrypted_pre_master = data.get("encrypted_pre_master", "")
     client_random = base64.b64decode(data.get("client_random", ""))
+    username = data.get("username", "Anonymous")
     
     if not all([encrypted_pre_master, client_random]):
         return jsonify({"error": "Missing required parameters"}), 400
@@ -188,11 +204,14 @@ def exchange_key():
         session_data[session_id] = {
             'client_random': client_random,
             'server_random': server_random,
-            'pre_master_secret': pre_master_secret
+            'pre_master_secret': pre_master_secret,
+            'username': username
         }
         
+        user_sessions[session_id] = username
+        
         if gui:
-            gui.add_connection(session_id)
+            gui.add_connection(session_id, username)
         
         return jsonify({
             "session_id": session_id,
@@ -218,19 +237,21 @@ def chat():
         if not session_key:
             return jsonify({"error": "Invalid session ID"}), 401
 
+        username = user_sessions.get(session_id, "Anonymous")
+        
         ciphertext = base64.b64decode(ciphertext)
         iv = base64.b64decode(iv)
         plaintext = decrypt_data(session_key, ciphertext, iv)
         client_message = plaintext.decode()
 
         if gui:
-            gui.log_chat(session_id, client_message, "Client")
+            gui.log_chat(session_id, username, client_message, "Client")
 
         server_response = client_message.upper()
         encrypted_response, response_iv = encrypt_data(session_key, server_response.encode())
 
         if gui:
-            gui.log_chat(session_id, server_response, "Server")
+            gui.log_chat(session_id, username, server_response, "Server")
 
         return jsonify({
             "ciphertext": base64.b64encode(encrypted_response).decode(),
@@ -245,6 +266,7 @@ def run_flask():
     app.run(debug=False, use_reloader=False)
 
 if __name__ == "__main__":
+    setup_crypto()  # Initialize cryptographic components
     gui = ServerGUI()
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()

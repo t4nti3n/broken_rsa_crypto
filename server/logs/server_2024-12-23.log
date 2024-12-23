@@ -42,3 +42,13 @@
 {"timestamp": "2024-12-23T12:44:17.061515", "type": "connection", "message": "New connection established: h4mInAr27ozOB4kOLiXR7Q=="}
 {"timestamp": "2024-12-23T12:46:18.162778", "type": "chat", "message": "[2024-12-23 12:46:18] [h4mInAr27ozOB4kOLiXR7Q==] Client: hi"}
 {"timestamp": "2024-12-23T12:46:18.163790", "type": "chat", "message": "[2024-12-23 12:46:18] [h4mInAr27ozOB4kOLiXR7Q==] Server: HI"}
+{"timestamp": "2024-12-23T14:40:42.573502", "type": "connection", "message": "New connection established: CRtaUVBEzFOQblNWg2UvNA=="}
+{"timestamp": "2024-12-23T14:53:54.899390", "type": "connection", "message": "New connection established: NHaSmnevDvrOM/tlh/Gdyw=="}
+{"timestamp": "2024-12-23T15:04:02.399773", "type": "chat", "message": "[2024-12-23 15:04:02] [NHaSmnevDvrOM/tlh/Gdyw==] Client: hi"}
+{"timestamp": "2024-12-23T15:04:02.400771", "type": "chat", "message": "[2024-12-23 15:04:02] [NHaSmnevDvrOM/tlh/Gdyw==] Server: HI"}
+{"timestamp": "2024-12-23T15:16:42.043542", "type": "connection", "message": "New connection established: bob (iHfF1kPSAtbxX1tXEOS3Xg==)"}
+{"timestamp": "2024-12-23T15:16:57.382916", "type": "chat", "message": "[2024-12-23 15:16:57] [bob] Client: hi"}
+{"timestamp": "2024-12-23T15:16:57.383913", "type": "chat", "message": "[2024-12-23 15:16:57] [bob] Server: HI"}
+{"timestamp": "2024-12-23T15:27:20.772865", "type": "connection", "message": "New connection established: bob (WDX16SUJHLYgTi1KEun0jA==)"}
+{"timestamp": "2024-12-23T15:27:34.908813", "type": "chat", "message": "[2024-12-23 15:27:34] [bob] Client: hello word"}
+{"timestamp": "2024-12-23T15:27:34.909833", "type": "chat", "message": "[2024-12-23 15:27:34] [bob] Server: HELLO WORD"}

@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, messagebox
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -22,6 +22,7 @@ class CryptoClient:
         self.server_random = None
         self.server_public_key = None
         self.encrypted_master_key = None
+        self.username = None
 
     def raw_rsa_encrypt(self, public_key, plaintext):
         """Raw RSA encryption without padding"""
@@ -69,11 +70,13 @@ class CryptoClient:
         response.raise_for_status()
         return response.json()["public_key"]
 
-    def establish_session(self, attack_type="normal"):
+    def establish_session(self, attack_type="normal", username="Anonymous"):
         """Establish a secure session with the server"""
+        self.username = username
+        
         # Get server's public key
         public_key_pem = self.get_server_public_key(attack_type)
-        self.server_public_key = public_key_pem  # Store public key
+        self.server_public_key = public_key_pem
         public_key = serialization.load_pem_public_key(
             public_key_pem.encode(),
             backend=default_backend()
@@ -85,7 +88,7 @@ class CryptoClient:
 
         # Encrypt pre-master secret
         encrypted_secret = self.raw_rsa_encrypt(public_key, self.pre_master_secret)
-        self.encrypted_master_key = encrypted_secret  # Store encrypted master key
+        self.encrypted_master_key = encrypted_secret
 
         # Exchange key with server
         response = requests.post(
@@ -93,7 +96,8 @@ class CryptoClient:
             json={
                 "attack_type": attack_type,
                 "encrypted_pre_master": base64.b64encode(encrypted_secret).decode(),
-                "client_random": base64.b64encode(self.client_random).decode()
+                "client_random": base64.b64encode(self.client_random).decode(),
+                "username": username
             },
             verify=False
         )
@@ -111,6 +115,7 @@ class CryptoClient:
 
         return {
             "session_id": self.session_id,
+            "username": self.username,
             "pre_master_secret": self.pre_master_secret.hex(),
             "client_random": self.client_random.hex(),
             "server_random": self.server_random.hex(),
@@ -143,7 +148,6 @@ class CryptoClient:
         # Decrypt server response
         return self.aes_decrypt(data["ciphertext"], data["iv"])
 
-
 class ChatGUI:
     def __init__(self):
         self.setup_window()
@@ -154,7 +158,7 @@ class ChatGUI:
     def setup_window(self):
         """Initialize main window"""
         self.root = tk.Tk()
-        self.root.title("Vulnerable Chat Client")
+        self.root.title("Secure Chat Client")
         self.root.geometry("800x600")
         
     def setup_crypto_client(self):
@@ -162,6 +166,7 @@ class ChatGUI:
         self.client = CryptoClient()
         self.attack_type = tk.StringVar(value="normal")
         self.status = tk.StringVar(value="Not Connected")
+        self.username = tk.StringVar(value="")
 
     def create_widgets(self):
         """Create GUI elements"""
@@ -171,8 +176,13 @@ class ChatGUI:
         # Connection frame
         self.conn_frame = ttk.LabelFrame(self.container, text="Connection Control", padding=5)
         
+        # Username field
+        ttk.Label(self.conn_frame, text="Username:").grid(row=0, column=0, padx=5)
+        self.username_entry = ttk.Entry(self.conn_frame, textvariable=self.username)
+        self.username_entry.grid(row=0, column=1, padx=5)
+        
         # Attack type selector
-        ttk.Label(self.conn_frame, text="Attack Mode:").grid(row=0, column=0, padx=5)
+        ttk.Label(self.conn_frame, text="Attack Mode:").grid(row=0, column=2, padx=5)
         self.attack_menu = ttk.OptionMenu(
             self.conn_frame, 
             self.attack_type,
@@ -183,8 +193,8 @@ class ChatGUI:
         )
         
         # Status and connect button
-        ttk.Label(self.conn_frame, text="Status:").grid(row=0, column=2, padx=5)
-        ttk.Label(self.conn_frame, textvariable=self.status).grid(row=0, column=3, padx=5)
+        ttk.Label(self.conn_frame, text="Status:").grid(row=0, column=4, padx=5)
+        ttk.Label(self.conn_frame, textvariable=self.status).grid(row=0, column=5, padx=5)
         self.connect_btn = ttk.Button(
             self.conn_frame, 
             text="Connect", 
@@ -220,8 +230,8 @@ class ChatGUI:
         
         # Connection frame
         self.conn_frame.pack(fill=tk.X, padx=5, pady=5)
-        self.attack_menu.grid(row=0, column=1, padx=5)
-        self.connect_btn.grid(row=0, column=4, padx=5)
+        self.attack_menu.grid(row=0, column=3, padx=5)
+        self.connect_btn.grid(row=0, column=6, padx=5)
         
         # Chat frame
         self.chat_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -235,15 +245,24 @@ class ChatGUI:
     def handle_connection(self):
         """Handle connection button click"""
         try:
+            username = self.username.get().strip()
+            if not username:
+                messagebox.showerror("Error", "Please enter a username")
+                return
+                
             self.status.set("Connecting...")
             self.connect_btn.state(['disabled'])
+            self.username_entry.state(['disabled'])
             self.root.update()
 
             # Establish secure session
-            session_info = self.client.establish_session(self.attack_type.get())
+            session_info = self.client.establish_session(
+                self.attack_type.get(),
+                username
+            )
 
             # Update UI
-            self.status.set("Connected")
+            self.status.set(f"Connected as {username}")
             self.send_btn.state(['!disabled'])
             self.msg_entry.state(['!disabled'])
             self.msg_entry.focus()
@@ -262,6 +281,7 @@ class ChatGUI:
         except Exception as e:
             self.status.set("Connection Failed")
             self.connect_btn.state(['!disabled'])
+            self.username_entry.state(['!disabled'])
             self.log_system_message(f"Error: {str(e)}")
 
     def send_message(self):
