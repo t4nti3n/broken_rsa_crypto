@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import base64
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -53,7 +53,6 @@ class ServerGUI:
         self.setup_logging()
         
     def setup_logging(self):
-        # Create logs directory if it doesn't exist
         Path("logs").mkdir(exist_ok=True)
         
     def add_connection(self, session_id):
@@ -94,8 +93,9 @@ class ServerGUI:
 app = Flask(__name__)
 gui = None
 session_keys = {}
+session_data = {}
 
-# RSA Keys setup remains the same
+# RSA Keys setup with no padding
 key_size = 2048
 e_small = 3
 private_key_small = rsa.generate_private_key(public_exponent=e_small, key_size=key_size)
@@ -106,36 +106,34 @@ public_key_common = rsa.RSAPublicNumbers(65537, common_modulus_n).public_key()
 private_key_normal = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
 public_key_normal = private_key_normal.public_key()
 
-# Helper functions remain the same
-def derive_session_key(pre_master_secret: bytes) -> bytes:
+def raw_rsa_decrypt(private_key, ciphertext):
+    # Get the private numbers
+    private_numbers = private_key.private_numbers()
+    # Perform raw RSA decryption: c^d mod n
+    c = int.from_bytes(ciphertext, byteorder='big')
+    m = pow(c, private_numbers.d, private_numbers.public_numbers.n)
+    # Convert back to bytes
+    decrypted = m.to_bytes((m.bit_length() + 7) // 8, byteorder='big')
+    return decrypted
+
+def derive_session_key(pre_master_secret: bytes, client_random: bytes, server_random: bytes) -> bytes:
+    key_material = pre_master_secret + client_random + server_random
     return HKDF(
         algorithm=hashes.SHA256(),
-        length=32,
+        length=16,
         salt=None,
         info=b"session key derivation",
-        backend=default_backend(),
-    ).derive(pre_master_secret)
+        backend=default_backend()
+    ).derive(key_material)
 
 def decrypt_pre_master_secret(attack_type, encrypted_pre_master):
     try:
         if attack_type == "small_exponent":
-            return private_key_small.decrypt(
-                encrypted_pre_master,
-                padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), 
-                           algorithm=hashes.SHA256(), label=None),
-            ) 
-        elif attack_type == "common_modulus": 
-            return private_key_common.decrypt(
-                encrypted_pre_master,
-                padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), 
-                           algorithm=hashes.SHA256(), label=None),
-            )
+            return raw_rsa_decrypt(private_key_small, encrypted_pre_master)
+        elif attack_type == "common_modulus":
+            return raw_rsa_decrypt(private_key_common, encrypted_pre_master)
         else:
-            return private_key_normal.decrypt(
-                encrypted_pre_master,
-                padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), 
-                           algorithm=hashes.SHA256(), label=None),
-            )
+            return raw_rsa_decrypt(private_key_normal, encrypted_pre_master)
     except Exception as e:
         print(f"Decryption failed: {str(e)}")
         raise e
@@ -152,7 +150,6 @@ def decrypt_data(session_key, ciphertext, iv):
     decryptor = cipher.decryptor()
     return decryptor.update(ciphertext) + decryptor.finalize()
 
-# Modified routes with GUI integration
 @app.route("/get_public_key", methods=["GET"])
 def get_public_key():
     attack_type = request.args.get("attack_type", "normal")
@@ -174,25 +171,32 @@ def exchange_key():
     data = request.json
     attack_type = data.get("attack_type", "normal")
     encrypted_pre_master = data.get("encrypted_pre_master", "")
+    client_random = base64.b64decode(data.get("client_random", ""))
     
-    if not encrypted_pre_master:
-        return jsonify({"error": "Missing encrypted_pre_master"}), 400
+    if not all([encrypted_pre_master, client_random]):
+        return jsonify({"error": "Missing required parameters"}), 400
 
     try:
+        server_random = os.urandom(16)
         encrypted_pre_master = base64.b64decode(encrypted_pre_master)
         pre_master_secret = decrypt_pre_master_secret(attack_type, encrypted_pre_master)
-        session_key = derive_session_key(pre_master_secret)
         
+        session_key = derive_session_key(pre_master_secret, client_random, server_random)
         session_id = base64.b64encode(os.urandom(16)).decode()
         session_keys[session_id] = session_key
         
-        # Update GUI
+        session_data[session_id] = {
+            'client_random': client_random,
+            'server_random': server_random,
+            'pre_master_secret': pre_master_secret
+        }
+        
         if gui:
             gui.add_connection(session_id)
         
         return jsonify({
-            "session_key": base64.b64encode(session_key).decode(),
-            "session_id": session_id
+            "session_id": session_id,
+            "server_random": base64.b64encode(server_random).decode()
         })
     except Exception as e:
         print(f"Error in exchange_key: {str(e)}")
@@ -214,21 +218,17 @@ def chat():
         if not session_key:
             return jsonify({"error": "Invalid session ID"}), 401
 
-        # Decrypt message from client
         ciphertext = base64.b64decode(ciphertext)
         iv = base64.b64decode(iv)
         plaintext = decrypt_data(session_key, ciphertext, iv)
         client_message = plaintext.decode()
 
-        # Log received message
         if gui:
             gui.log_chat(session_id, client_message, "Client")
 
-        # Server response (uppercase the message)
         server_response = client_message.upper()
         encrypted_response, response_iv = encrypt_data(session_key, server_response.encode())
 
-        # Log server response
         if gui:
             gui.log_chat(session_id, server_response, "Server")
 
@@ -245,12 +245,7 @@ def run_flask():
     app.run(debug=False, use_reloader=False)
 
 if __name__ == "__main__":
-    # Create and start GUI in main thread
     gui = ServerGUI()
-    
-    # Start Flask in a separate thread
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    
-    # Run GUI main loop
     gui.run()

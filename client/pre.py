@@ -20,16 +20,14 @@ class CryptoClient:
         self.pre_master_secret = None
         self.client_random = None
         self.server_random = None
-        self.server_public_key = None
-        self.encrypted_master_key = None
-
+    
     def raw_rsa_encrypt(self, public_key, plaintext):
         """Raw RSA encryption without padding"""
         numbers = public_key.public_numbers()
         m = int.from_bytes(plaintext, byteorder='big')
         c = pow(m, numbers.e, numbers.n)
         return c.to_bytes((c.bit_length() + 7) // 8, byteorder='big')
-
+    
     def derive_session_key(self, pre_master_secret, client_random, server_random):
         """Derive session key using HKDF"""
         key_material = pre_master_secret + client_random + server_random
@@ -73,7 +71,6 @@ class CryptoClient:
         """Establish a secure session with the server"""
         # Get server's public key
         public_key_pem = self.get_server_public_key(attack_type)
-        self.server_public_key = public_key_pem  # Store public key
         public_key = serialization.load_pem_public_key(
             public_key_pem.encode(),
             backend=default_backend()
@@ -85,7 +82,6 @@ class CryptoClient:
 
         # Encrypt pre-master secret
         encrypted_secret = self.raw_rsa_encrypt(public_key, self.pre_master_secret)
-        self.encrypted_master_key = encrypted_secret  # Store encrypted master key
 
         # Exchange key with server
         response = requests.post(
@@ -114,9 +110,7 @@ class CryptoClient:
             "pre_master_secret": self.pre_master_secret.hex(),
             "client_random": self.client_random.hex(),
             "server_random": self.server_random.hex(),
-            "session_key": self.session_key.hex(),
-            "server_public_key": self.server_public_key,
-            "encrypted_master_key": base64.b64encode(self.encrypted_master_key).decode()
+            "session_key": self.session_key.hex()
         }
 
     def send_message(self, message):
@@ -142,7 +136,6 @@ class CryptoClient:
 
         # Decrypt server response
         return self.aes_decrypt(data["ciphertext"], data["iv"])
-
 
 class ChatGUI:
     def __init__(self):
@@ -241,7 +234,7 @@ class ChatGUI:
 
             # Establish secure session
             session_info = self.client.establish_session(self.attack_type.get())
-
+            
             # Update UI
             self.status.set("Connected")
             self.send_btn.state(['!disabled'])
@@ -251,12 +244,7 @@ class ChatGUI:
             # Log connection details
             self.log_system_message("=== Connection Established ===")
             for key, value in session_info.items():
-                if key == "server_public_key":
-                    self.log_system_message(f"{key}:\n{value}")
-                elif key == "encrypted_master_key":
-                    self.log_system_message(f"{key}: {value}")
-                else:
-                    self.log_system_message(f"{key}: {value}")
+                self.log_system_message(f"{key}: {value}")
             self.log_system_message("============================")
 
         except Exception as e:
