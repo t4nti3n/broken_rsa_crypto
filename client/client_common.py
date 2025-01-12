@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, messagebox
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -20,14 +20,17 @@ class CryptoClient:
         self.pre_master_secret = None
         self.client_random = None
         self.server_random = None
-    
+        self.server_public_key = None
+        self.encrypted_master_key = None
+        self.username = None
+
     def raw_rsa_encrypt(self, public_key, plaintext):
         """Raw RSA encryption without padding"""
         numbers = public_key.public_numbers()
         m = int.from_bytes(plaintext, byteorder='big')
         c = pow(m, numbers.e, numbers.n)
         return c.to_bytes((c.bit_length() + 7) // 8, byteorder='big')
-    
+
     def derive_session_key(self, pre_master_secret, client_random, server_random):
         """Derive session key using HKDF"""
         key_material = pre_master_secret + client_random + server_random
@@ -57,20 +60,22 @@ class CryptoClient:
         plaintext = cipher.decryptor().update(base64.b64decode(ciphertext))
         return plaintext.decode()
 
-    def get_server_public_key(self, attack_type="normal"):
+    def get_server_public_key(self):
         """Get server's public key"""
         response = requests.get(
             f"{self.server_url}/get_public_key",
-            params={"attack_type": attack_type},
             verify=False
         )
         response.raise_for_status()
         return response.json()["public_key"]
 
-    def establish_session(self, attack_type="normal"):
+    def establish_session(self, username="Anonymous"):
         """Establish a secure session with the server"""
+        self.username = username
+        
         # Get server's public key
-        public_key_pem = self.get_server_public_key(attack_type)
+        public_key_pem = self.get_server_public_key()
+        self.server_public_key = public_key_pem
         public_key = serialization.load_pem_public_key(
             public_key_pem.encode(),
             backend=default_backend()
@@ -78,18 +83,19 @@ class CryptoClient:
 
         # Generate random values
         self.client_random = os.urandom(16)
-        self.pre_master_secret = os.urandom(16)
+        self.pre_master_secret = b"MyFixedPreMaster!"  # 16 bytes cố định
 
         # Encrypt pre-master secret
         encrypted_secret = self.raw_rsa_encrypt(public_key, self.pre_master_secret)
+        self.encrypted_master_key = encrypted_secret
 
         # Exchange key with server
         response = requests.post(
             f"{self.server_url}/exchange_key",
             json={
-                "attack_type": attack_type,
                 "encrypted_pre_master": base64.b64encode(encrypted_secret).decode(),
-                "client_random": base64.b64encode(self.client_random).decode()
+                "client_random": base64.b64encode(self.client_random).decode(),
+                "username": username
             },
             verify=False
         )
@@ -107,10 +113,13 @@ class CryptoClient:
 
         return {
             "session_id": self.session_id,
+            "username": self.username,
             "pre_master_secret": self.pre_master_secret.hex(),
             "client_random": self.client_random.hex(),
             "server_random": self.server_random.hex(),
-            "session_key": self.session_key.hex()
+            "session_key": self.session_key.hex(),
+            "server_public_key": self.server_public_key,
+            "encrypted_master_key": base64.b64encode(self.encrypted_master_key).decode()
         }
 
     def send_message(self, message):
@@ -147,143 +156,102 @@ class ChatGUI:
     def setup_window(self):
         """Initialize main window"""
         self.root = tk.Tk()
-        self.root.title("Vulnerable Chat Client")
+        self.root.title("Secure Chat Client")
         self.root.geometry("800x600")
         
     def setup_crypto_client(self):
         """Initialize crypto client"""
         self.client = CryptoClient()
-        self.attack_type = tk.StringVar(value="normal")
         self.status = tk.StringVar(value="Not Connected")
+        self.username = tk.StringVar(value="")
 
     def create_widgets(self):
         """Create GUI elements"""
-        # Main container
         self.container = ttk.Frame(self.root, padding=10)
-        
-        # Connection frame
         self.conn_frame = ttk.LabelFrame(self.container, text="Connection Control", padding=5)
-        
-        # Attack type selector
-        ttk.Label(self.conn_frame, text="Attack Mode:").grid(row=0, column=0, padx=5)
-        self.attack_menu = ttk.OptionMenu(
-            self.conn_frame, 
-            self.attack_type,
-            "normal",
-            "normal", 
-            "small_exponent", 
-            "common_modulus"
-        )
-        
-        # Status and connect button
+        ttk.Label(self.conn_frame, text="Username:").grid(row=0, column=0, padx=5)
+        self.username_entry = ttk.Entry(self.conn_frame, textvariable=self.username)
+        self.username_entry.grid(row=0, column=1, padx=5)
         ttk.Label(self.conn_frame, text="Status:").grid(row=0, column=2, padx=5)
         ttk.Label(self.conn_frame, textvariable=self.status).grid(row=0, column=3, padx=5)
-        self.connect_btn = ttk.Button(
-            self.conn_frame, 
-            text="Connect", 
-            command=self.handle_connection
-        )
-        
-        # Chat frame
+        self.connect_btn = ttk.Button(self.conn_frame, text="Connect", command=self.handle_connection)
+        self.connect_btn.grid(row=0, column=4, padx=5)
+
         self.chat_frame = ttk.LabelFrame(self.container, text="Chat", padding=5)
-        
-        # Chat log
-        self.chat_log = scrolledtext.ScrolledText(
-            self.chat_frame, 
-            wrap=tk.WORD,
-            height=20
-        )
-        
-        # Message entry
+        self.chat_log = scrolledtext.ScrolledText(self.chat_frame, wrap=tk.WORD, height=20)
         self.msg_frame = ttk.Frame(self.chat_frame)
         self.msg_entry = ttk.Entry(self.msg_frame)
         self.msg_entry.bind('<Return>', lambda e: self.send_message())
-        
-        self.send_btn = ttk.Button(
-            self.msg_frame,
-            text="Send",
-            command=self.send_message,
-            state='disabled'
-        )
+        self.send_btn = ttk.Button(self.msg_frame, text="Send", command=self.send_message, state='disabled')
 
     def setup_layout(self):
-        """Arrange widgets in the window"""
-        # Main container
         self.container.pack(fill=tk.BOTH, expand=True)
-        
-        # Connection frame
         self.conn_frame.pack(fill=tk.X, padx=5, pady=5)
-        self.attack_menu.grid(row=0, column=1, padx=5)
-        self.connect_btn.grid(row=0, column=4, padx=5)
-        
-        # Chat frame
         self.chat_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.chat_log.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Message frame
         self.msg_frame.pack(fill=tk.X, padx=5, pady=5)
         self.msg_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.send_btn.pack(side=tk.RIGHT, padx=5)
 
     def handle_connection(self):
-        """Handle connection button click"""
         try:
+            username = self.username.get().strip()
+            if not username:
+                messagebox.showerror("Error", "Please enter a username")
+                return
+                
             self.status.set("Connecting...")
             self.connect_btn.state(['disabled'])
+            self.username_entry.state(['disabled'])
             self.root.update()
 
-            # Establish secure session
-            session_info = self.client.establish_session(self.attack_type.get())
-            
-            # Update UI
-            self.status.set("Connected")
+            session_info = self.client.establish_session(username)
+
+            self.status.set(f"Connected as {username}")
             self.send_btn.state(['!disabled'])
             self.msg_entry.state(['!disabled'])
             self.msg_entry.focus()
 
-            # Log connection details
             self.log_system_message("=== Connection Established ===")
             for key, value in session_info.items():
-                self.log_system_message(f"{key}: {value}")
+                if key == "server_public_key":
+                    self.log_system_message(f"{key}:\n{value}")
+                elif key == "encrypted_master_key":
+                    self.log_system_message(f"{key}: {value}")
+                else:
+                    self.log_system_message(f"{key}: {value}")
             self.log_system_message("============================")
 
         except Exception as e:
             self.status.set("Connection Failed")
             self.connect_btn.state(['!disabled'])
+            self.username_entry.state(['!disabled'])
             self.log_system_message(f"Error: {str(e)}")
 
     def send_message(self):
-        """Handle sending messages"""
         message = self.msg_entry.get().strip()
         if not message:
             return
 
         try:
-            # Send message and get response
             self.log_message("You", message)
             response = self.client.send_message(message)
             self.log_message("Server", response)
-            
-            # Clear input
             self.msg_entry.delete(0, tk.END)
-            
         except Exception as e:
             self.log_system_message(f"Error: {str(e)}")
 
     def log_message(self, sender, message):
-        """Log chat messages"""
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         self.chat_log.insert(tk.END, f"[{timestamp}] {sender}: {message}\n")
         self.chat_log.see(tk.END)
 
     def log_system_message(self, message):
-        """Log system messages"""
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         self.chat_log.insert(tk.END, f"[{timestamp}] SYSTEM: {message}\n")
         self.chat_log.see(tk.END)
 
     def run(self):
-        """Start the application"""
         self.root.mainloop()
 
 if __name__ == "__main__":
